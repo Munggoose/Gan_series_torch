@@ -16,6 +16,14 @@ class Option:
         parser.add_argument("--n_critic", type=int, default=5, help="number of training steps for discriminator per iter")
         parser.add_argument("--clip_value", type=float, default=0.01, help="lower and upper clip value for disc. weights")
         parser.add_argument("--sample_interval", type=int, default=400, help="interval betwen image samples")
+        parser.add_arguemnt("--isTrain",type=bool, default=True, help= 'check is trainning mode')
+
+        #Ganomaly option
+        parser.add_argument("--w_adv",type=float,default=1, help = 'weight of discrminator loss')
+        parser.add_argument("--w_con",type=float,default=1, help = 'weight of image loss')
+        parser.add_argument("--w_enc",type=float,default=1, help = 'weight of feature loss')
+        parser.add_argument('--abnormal_idx',type = int, default = 0,help= 'Abnomral')
+
 
         self.opt =parser.parse_args()
         print(self.opt)

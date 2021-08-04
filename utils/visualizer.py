@@ -69,3 +69,6 @@ class Visualizer():
         self.vis.images(fakes, win=2, opts={'title': 'Fakes'})
         if fixed:
             self.vis.images(fixed, win=3, opts={'title': 'Fixed'})
+
+    def print_current(self):
+        pass
