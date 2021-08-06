@@ -14,6 +14,7 @@ import torchvision.utils as vutils
 from network import NetG, NetD, weights_init
 from collections import OrderedDict
 from custom_loader import load_data
+from evaluate import evaluate
 
 import sys
 
@@ -25,7 +26,7 @@ class Option:
     def __init__(self):
         parser = argparse.ArgumentParser()
 
-        parser.add_argument("--n_epochs",type=int,default=200, help = 'number of epochs of training')
+        parser.add_argument("--n_epochs",type=int,default=1, help = 'number of epochs of training')
         parser.add_argument("--batch_size",type=int, default=64, help = 'size of the batches')
         parser.add_argument("--lr", type=float, default=0.00005, help="learning rate")
         parser.add_argument("--latent_dim", type=int, default=100, help="dimensionality of the latent space")
@@ -51,6 +52,7 @@ class Option:
         parser.add_argument('--extralayers',type=int, default=0, help='add extralayer')
         parser.add_argument('--print_freq', type=int, default=100, help='frequency of showing training results on console')
         parser.add_argument('--save_image_freq', type=int, default=100, help='frequency of saving real and fake images')
+        parser.add_argument('--metric',type=str,default='roc',help='Evaluation metric.')
         
         self.opt =parser.parse_args()
     
@@ -90,13 +92,17 @@ class Ganomaly():
         self.real_label = torch.ones(size=(self.opt.batch_size,),dtype=torch.float32, device=self.device)
         self.fake_label = torch.zeros(size=(self.opt.batch_size,),dtype=torch.float32, device=self.device)
 
+        with torch.no_grad():
+            self.an_scores = torch.zeros(size=(len(dataloader.dataset),), dtype=torch.float32, device=opt.device)
+            self.gt_labels = torch.zeros(size=(len(dataloader.dataset),), dtype=torch.long,    device=opt.device)
+            self.latent_i  = torch.zeros(size=(len(dataloader.dataset), opt.latent_dim), dtype=torch.float32, device=opt.device)
+            self.latent_o  = torch.zeros(size=(len(dataloader.dataset), opt.latent_dim), dtype=torch.float32, device=opt.device)
+
         if self.opt.isTrain:
             self.netg.train()
             self.netd.train()
             self.optimizer_d = optim.Adam(self.netd.parameters(), lr = self.opt.lr, betas=(0.5, 0.999))
             self.optimizer_g = optim.Adam(self.netg.parameters(), lr = self.opt.lr, betas=(0.5, 0.999))
-
-        
 
 
     def set_input(self, input:torch.Tensor):
@@ -105,7 +111,7 @@ class Ganomaly():
             self.gt.resize_(input[1].size()).copy_(input[1])
             self.label.resize_(input[1].size())
 
-            # if self.total_steps == self.opt.batchsize:
+            # if self.total_steps == self.opt.batch_size:
             #     self.fixed_input.resize_(input[0].size()).copy_(input[0])
 
     def seed(self, seed_value):
@@ -165,16 +171,17 @@ class Ganomaly():
         self.err_g.backward(retain_graph=True)
 
     def backward_d(self):
+
         """[summary]
         Discriminator backpropagation
         """
-
+    
         self.err_d_real = self.l_bce(self.pred_real, self.real_label)
         self.err_d_fake = self.l_bce(self.pred_fake, self.fake_label)
 
         self.err_d = (self.err_d_real + self.err_d_fake) * 0.5
         self.err_d.backward()
-    
+
 
 def train(opt, model ,dataloader):
     total_steps = 0
@@ -227,12 +234,76 @@ def train(opt, model ,dataloader):
 
         # self.visualizer.print_current_errors(self.epoch, errors)
 
+def test(opt, model, dataloader,path):
+
+    # with torch.no_grad():
+    #     pretrained_dict = torch.load(path)['state_dict']
+    #     try:
+    #         model.netg.load_state_dict(pretrained_dict)
+
+    #     except IOError:
+    #         raise IOError("netG weights not found")
+    #     print('   Loaded weights.')
+
+        # opt.phase = 'test'
+    times = []
+    total_steps = 0
+    epoch_iter = 0
+    
+    for i, data in enumerate(dataloader, 0):
+        total_steps += opt.batch_size
+        epoch_iter += opt.batch_size
+        time_i = time.time()
+        model.set_input(data)
+        model.forward()
+        model.fake, latent_i, latent_o = model.netg(model.input)
+
+        error = torch.mean(torch.pow((model.latent_i-model.latent_o), 2), dim=1)
+        time_o = time.time()
+        with torch.no_grad():
+            model.an_scores = torch.zeros(size=(len(dataloader.dataset),), dtype=torch.float32, device=opt.device)
+            model.gt_labels = torch.zeros(size=(len(dataloader.dataset),), dtype=torch.long,    device=opt.device)
+            model.latent_i  = torch.zeros(size=(len(dataloader.dataset), opt.latent_dim), dtype=torch.float32, device=opt.device)
+            model.latent_o  = torch.zeros(size=(len(dataloader.dataset), opt.latent_dim), dtype=torch.float32, device=opt.device)
+
+
+        model.an_scores[i*opt.batch_size : i*opt.batch_size+error.size(0)] = error.reshape(error.size(0))
+        model.gt_labels[i*opt.batch_size : i*opt.batch_size+error.size(0)] = model.gt.reshape(error.size(0))
+        # print(latent_i.reshape(error.size(0), opt.latent_dim).shape)
+        # print(model.latent_i [i*opt.batch_size : i*opt.batch_size+error.size(0), :].shape)
+        # exit()
+        model.latent_i [i*opt.batch_size : i*opt.batch_size+error.size(0), :] = latent_i.reshape(error.size(0), opt.latent_dim)
+        model.latent_o [i*opt.batch_size : i*opt.batch_size+error.size(0), :] = latent_o.reshape(error.size(0), opt.latent_dim)
+
+        times.append(time_o - time_i)
+
+        # Save test images.
+        # if opt.save_test_images:
+        #     dst = os.path.join(opt.outf, opt.name, 'test', 'images')
+        #     if not os.path.isdir(dst):
+        #         os.makedirs(dst)
+        #     real, fake, _ = model.get_current_images()
+            # vutils.save_image(real, '%s/real_%03d.eps' % (dst, i+1), normalize=True)
+            # vutils.save_image(fake, '%s/fake_%03d.eps' % (dst, i+1), normalize=True)
+
+    # Measure inference time.
+    times = np.array(times)
+    times = np.mean(times[:100] * 1000)
+
+    # Scale error vector between [0, 1]
+    model.an_scores = (model.an_scores - torch.min(model.an_scores)) / (torch.max(model.an_scores) - torch.min(model.an_scores))
+    # auc, eer = roc(self.gt_labels, self.an_scores)
+    auc = evaluate(model.gt_labels, model.an_scores, metric=opt.metric)
+    performance = OrderedDict([('Avg Run Time (ms/batch)', times), (opt.metric, auc)])
+
+    return performance
+
 
 if __name__ =='__main__':
     opt = Option().parse()
-
     dataloader = load_data(opt)
     print('load finish')
     model =  Ganomaly(opt)
     print('__train__start____')
     train(opt, model, dataloader)
+    result=test(opt,model,dataloader,'./')

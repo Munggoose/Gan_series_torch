@@ -151,7 +151,6 @@ class NetD(nn.Module):
 
     def forward(self, x):
         features = self.features(x)
-        features = features
         classifier = self.classifier(features)
         classifier = classifier.view(-1, 1).squeeze(1)
 
