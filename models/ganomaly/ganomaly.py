@@ -234,6 +234,23 @@ def train(opt, model ,dataloader):
 
         # self.visualizer.print_current_errors(self.epoch, errors)
 
+def predict(model, opt, img_path):
+
+    """
+    args:
+
+    model: ganomly model
+    opt: option
+    img_path: input Image path
+    
+    output:
+    result: (int): 0 or 1 (정상 올 비정상)
+    
+    """
+
+
+    return result
+
 def test(opt, model, dataloader,path):
 
     # with torch.no_grad():
@@ -253,12 +270,12 @@ def test(opt, model, dataloader,path):
     for i, data in enumerate(dataloader, 0):
         total_steps += opt.batch_size
         epoch_iter += opt.batch_size
-        time_i = time.time()
+        time_i = time.time() 
         model.set_input(data)
         model.forward()
         model.fake, latent_i, latent_o = model.netg(model.input)
 
-        error = torch.mean(torch.pow((model.latent_i-model.latent_o), 2), dim=1)
+        error = torch.mean(torch.pow((model.latent_i-model.latent_o), 2), dim=1)  # abnomalr score 구하는
         time_o = time.time()
         with torch.no_grad():
             model.an_scores = torch.zeros(size=(len(dataloader.dataset),), dtype=torch.float32, device=opt.device)
@@ -292,11 +309,19 @@ def test(opt, model, dataloader,path):
 
     # Scale error vector between [0, 1]
     model.an_scores = (model.an_scores - torch.min(model.an_scores)) / (torch.max(model.an_scores) - torch.min(model.an_scores))
+
+    
     # auc, eer = roc(self.gt_labels, self.an_scores)
-    auc = evaluate(model.gt_labels, model.an_scores, metric=opt.metric)
+    auc, thres_hold = evaluate(model.gt_labels, model.an_scores, metric=opt.metric)
+    print(thres_hold)
     performance = OrderedDict([('Avg Run Time (ms/batch)', times), (opt.metric, auc)])
 
     return performance
+
+
+#predict함수구현
+#1.모델 복원이미지 저장
+#2.
 
 
 if __name__ =='__main__':
